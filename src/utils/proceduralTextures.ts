@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import {
+  buildDeskWoodSurfaceBuffers,
+  heightFieldToNormalMapData,
+  mulberry32,
+} from './surfaceMaps';
 
 function createCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const canvas = document.createElement('canvas');
@@ -23,14 +28,17 @@ export function createContactShadowTexture(): THREE.CanvasTexture {
 
 export function createWoodTextures(maxAnisotropy = 4): {
   map: THREE.CanvasTexture;
-  bumpMap: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
 } {
+  const surface = buildDeskWoodSurfaceBuffers(512);
+  const rand = mulberry32(90125);
+
   const [canvas, ctx] = createCanvas(1024, 1024);
   ctx.fillStyle = '#c8a783';
   ctx.fillRect(0, 0, 1024, 1024);
 
-  // Rich natural birch/oak wood grain fibers & subtle cathedral rings
+  // Rich natural birch/oak wood grain fibers & subtle cathedral rings (seamlessly periodic in X)
   for (let i = 0; i < 1100; i++) {
     const y = (i * 1024) / 1100;
     const tone = 165 + Math.sin(i * 0.075) * 18 + Math.cos(i * 0.27) * 9;
@@ -38,8 +46,9 @@ export function createWoodTextures(maxAnisotropy = 4): {
     ctx.lineWidth = i % 19 === 0 ? 2.1 : 1.25;
     ctx.beginPath();
     ctx.moveTo(0, y);
-    for (let x = 0; x <= 1024; x += 24) {
-      const wave = Math.sin(x * 0.007 + i * 0.075) * 5.2 + Math.cos(x * 0.022) * 1.6;
+    for (let x = 0; x <= 1024; x += 16) {
+      const uRad = (x / 1024) * Math.PI * 2;
+      const wave = Math.sin(uRad + i * 0.075) * 5.2 + Math.cos(uRad * 3) * 1.6;
       ctx.lineTo(x, y + wave);
     }
     ctx.stroke();
@@ -57,6 +66,31 @@ export function createWoodTextures(maxAnisotropy = 4): {
     ctx.stroke();
   });
 
+  // Subtle lived-in micro-scratches matching the heightfield/normalMap (wrapped seamlessly across edges)
+  const scale = 1024 / surface.size;
+  surface.scratches.forEach((s, idx) => {
+    ctx.strokeStyle = idx % 2 === 0 ? 'rgba(255, 244, 224, 0.14)' : 'rgba(65, 42, 22, 0.12)';
+    ctx.lineWidth = s.widthPx * 1.1;
+    for (const ox of [0, -1024, 1024]) {
+      ctx.beginPath();
+      ctx.moveTo(s.x0 * scale + ox, s.y0 * scale);
+      ctx.lineTo(s.x1 * scale + ox, s.y1 * scale);
+      ctx.stroke();
+    }
+  });
+
+  // Faint surface dust motes & matte workshop patina flecks
+  for (let i = 0; i < 480; i++) {
+    const dx = rand() * 1024;
+    const dy = rand() * 1024;
+    const r = 0.6 + rand() * 1.6;
+    const alpha = 0.035 + rand() * 0.055;
+    ctx.fillStyle = rand() > 0.35 ? `rgba(246, 240, 228, ${alpha})` : `rgba(82, 58, 36, ${alpha * 0.8})`;
+    ctx.beginPath();
+    ctx.arc(dx, dy, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = THREE.RepeatWrapping;
@@ -64,46 +98,32 @@ export function createWoodTextures(maxAnisotropy = 4): {
   map.repeat.set(2, 1.2);
   map.anisotropy = maxAnisotropy;
 
-  const [bCanvas, bCtx] = createCanvas(512, 512);
-  bCtx.fillStyle = '#808080';
-  bCtx.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 420; i++) {
-    const y = (i * 512) / 420;
-    const val = 114 + Math.round(Math.sin(i * 0.23) * 28);
-    bCtx.strokeStyle = `rgb(${val},${val},${val})`;
-    bCtx.lineWidth = 1.2;
-    bCtx.beginPath();
-    bCtx.moveTo(0, y);
-    bCtx.lineTo(512, y + Math.sin(i) * 2);
-    bCtx.stroke();
-  }
-  const bumpMap = new THREE.CanvasTexture(bCanvas);
-  bumpMap.colorSpace = THREE.NoColorSpace;
-  bumpMap.wrapS = THREE.RepeatWrapping;
-  bumpMap.wrapT = THREE.RepeatWrapping;
-  bumpMap.repeat.set(2, 1.2);
+  // Noise + grain + micro-scratch tangent-space normal map
+  const normalRgba = heightFieldToNormalMapData(surface.heights, surface.size, surface.size, 2.8);
+  const [nCanvas, nCtx] = createCanvas(surface.size, surface.size);
+  nCtx.putImageData(new ImageData(new Uint8ClampedArray(normalRgba), surface.size, surface.size), 0, 0);
+  const normalMap = new THREE.CanvasTexture(nCanvas);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.wrapS = THREE.RepeatWrapping;
+  normalMap.wrapT = THREE.RepeatWrapping;
+  normalMap.repeat.set(2, 1.2);
+  normalMap.anisotropy = maxAnisotropy;
 
-  // Satin oiled-oak roughness variation (pores slightly rougher, smooth grain slightly glossier)
-  const [rCanvas, rCtx] = createCanvas(512, 512);
-  rCtx.fillStyle = '#929292';
-  rCtx.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 360; i++) {
-    const y = (i * 512) / 360;
-    const val = 126 + Math.round(Math.sin(i * 0.19) * 24);
-    rCtx.strokeStyle = `rgb(${val},${val},${val})`;
-    rCtx.lineWidth = 1.5;
-    rCtx.beginPath();
-    rCtx.moveTo(0, y);
-    rCtx.lineTo(512, y + Math.cos(i) * 2);
-    rCtx.stroke();
-  }
+  // Calibrated roughness map with wood pores, matte dust patches & micro-scratch breakup
+  const [rCanvas, rCtx] = createCanvas(surface.size, surface.size);
+  rCtx.putImageData(
+    new ImageData(new Uint8ClampedArray(surface.roughness), surface.size, surface.size),
+    0,
+    0
+  );
   const roughnessMap = new THREE.CanvasTexture(rCanvas);
   roughnessMap.colorSpace = THREE.NoColorSpace;
   roughnessMap.wrapS = THREE.RepeatWrapping;
   roughnessMap.wrapT = THREE.RepeatWrapping;
   roughnessMap.repeat.set(2, 1.2);
+  roughnessMap.anisotropy = maxAnisotropy;
 
-  return { map, bumpMap, roughnessMap };
+  return { map, normalMap, roughnessMap };
 }
 
 export function createDeskMatTexture(maxAnisotropy = 4): THREE.CanvasTexture {

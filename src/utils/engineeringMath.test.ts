@@ -7,6 +7,10 @@ import {
   validateVinylTrackSubmission,
   formatTrackDuration,
 } from './engineeringMath';
+import {
+  heightFieldToNormalMapData,
+  buildDeskWoodSurfaceBuffers,
+} from './surfaceMaps';
 
 test('simulateCoolingRig computes nominal 25C thermistor resistance and keeps relay off', () => {
   const reading = simulateCoolingRig(25, 30);
@@ -94,4 +98,42 @@ test('formatTrackDuration formats full-song durations cleanly', () => {
   assert.equal(formatTrackDuration(0), '0:00');
   assert.equal(formatTrackDuration(186), '3:06');
   assert.equal(formatTrackDuration(332.9), '5:32');
+});
+
+test('heightFieldToNormalMapData encodes flat surfaces as +Z tangent normals and slopes asymmetrically', () => {
+  const flat = new Float32Array(16).fill(0.5);
+  const flatRgba = heightFieldToNormalMapData(flat, 4, 4, 2.0);
+  assert.equal(flatRgba[0], 128);
+  assert.equal(flatRgba[1], 128);
+  assert.equal(flatRgba[2], 255);
+  assert.equal(flatRgba[3], 255);
+
+  const sloped = new Float32Array(16);
+  for (let y = 0; y < 4; y++) {
+    for (let x = 0; x < 4; x++) {
+      sloped[y * 4 + x] = x === 2 ? 0.9 : 0.2;
+    }
+  }
+  const slopedRgba = heightFieldToNormalMapData(sloped, 4, 4, 2.0);
+  // Left of ridge (x=1) tilts left (nx < 0 -> R < 128); right of ridge (x=3) tilts right (nx > 0 -> R > 128)
+  const leftIdx = (1 * 4 + 1) * 4;
+  const rightIdx = (1 * 4 + 3) * 4;
+  assert.ok(slopedRgba[leftIdx] < 128);
+  assert.ok(slopedRgba[rightIdx] > 128);
+});
+
+test('buildDeskWoodSurfaceBuffers produces varied height, roughness, and micro-scratches', () => {
+  const buffers = buildDeskWoodSurfaceBuffers(64);
+  assert.equal(buffers.heights.length, 64 * 64);
+  assert.equal(buffers.roughness.length, 64 * 64 * 4);
+  assert.equal(buffers.scratches.length, 64);
+
+  let minR = 255;
+  let maxR = 0;
+  for (let i = 0; i < 64 * 64; i++) {
+    const val = buffers.roughness[i * 4];
+    if (val < minR) minR = val;
+    if (val > maxR) maxR = val;
+  }
+  assert.ok(maxR - minR >= 45, `Expected roughness spread >= 45, got ${maxR - minR}`);
 });

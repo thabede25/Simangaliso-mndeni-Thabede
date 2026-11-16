@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
@@ -169,6 +169,36 @@ export function DeskObjects({
     []
   );
 
+  const woodNormalScale = useMemo(() => new THREE.Vector2(0.46, 0.46), []);
+
+  useEffect(() => {
+    return () => {
+      textures.wood.map.dispose();
+      textures.wood.normalMap.dispose();
+      textures.wood.roughnessMap.dispose();
+      textures.deskMat.dispose();
+      textures.walnut.dispose();
+      textures.vinylDisc.dispose();
+      textures.stickyYellow.dispose();
+      textures.stickyPink.dispose();
+      textures.tireTread.dispose();
+      textures.breadboard.dispose();
+      textures.cadSheet.dispose();
+      textures.laptopScreen.dispose();
+      textures.tabletScreen.dispose();
+      textures.phoneScreen.dispose();
+      textures.diaryCover.dispose();
+      textures.contactShadow.dispose();
+    };
+  }, [textures]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(geos).forEach((g) => g.dispose());
+      keycapMaterial.dispose();
+    };
+  }, [geos, keycapMaterial]);
+
   const [hovered, setHovered] = useState<DeskFocusId | 'wall-note' | null>(null);
   const fanRotorRef = useRef<THREE.Group>(null);
   const truckBedRef = useRef<THREE.Group>(null);
@@ -268,11 +298,11 @@ export function DeskObjects({
           <meshStandardMaterial
             color="#ffffff"
             map={textures.wood.map}
-            bumpMap={textures.wood.bumpMap}
-            bumpScale={0.01}
+            normalMap={textures.wood.normalMap}
+            normalScale={woodNormalScale}
             roughnessMap={textures.wood.roughnessMap}
-            roughness={0.56}
-            metalness={0.04}
+            roughness={0.68}
+            metalness={0.03}
           />
         </mesh>
 
@@ -353,7 +383,7 @@ export function DeskObjects({
             <meshStandardMaterial
               color="#fef3c7"
               emissive="#fbbf24"
-              emissiveIntensity={2.6}
+              emissiveIntensity={3.2}
               toneMapped={false}
               roughness={0.18}
             />
@@ -473,11 +503,11 @@ export function DeskObjects({
               map={textures.laptopScreen}
               emissiveMap={textures.laptopScreen}
               emissive="#ffffff"
-              emissiveIntensity={0.62}
-              roughness={0.18}
+              emissiveIntensity={0.45}
+              roughness={0.28}
               metalness={0.02}
-              clearcoat={0.65}
-              clearcoatRoughness={0.12}
+              clearcoat={0.35}
+              clearcoatRoughness={0.18}
             />
           </mesh>
         </group>
@@ -534,8 +564,8 @@ export function DeskObjects({
               map={textures.tabletScreen}
               emissiveMap={textures.tabletScreen}
               emissive="#ffffff"
-              emissiveIntensity={0.42}
-              roughness={0.42}
+              emissiveIntensity={0.26}
+              roughness={0.54}
               metalness={0.02}
             />
           </mesh>
@@ -601,7 +631,7 @@ export function DeskObjects({
             <meshStandardMaterial
               color={fanActive ? '#ef4444' : '#10b981'}
               emissive={fanActive ? '#ef4444' : '#10b981'}
-              emissiveIntensity={2.4}
+              emissiveIntensity={3.0}
               toneMapped={false}
               roughness={0.18}
             />
@@ -710,8 +740,8 @@ export function DeskObjects({
             map={textures.phoneScreen}
             emissiveMap={textures.phoneScreen}
             emissive="#ffffff"
-            emissiveIntensity={0.5}
-            roughness={0.24}
+            emissiveIntensity={0.24}
+            roughness={0.54}
           />
         </mesh>
         {/* Dynamic Island pill */}
@@ -772,7 +802,7 @@ export function DeskObjects({
             <meshStandardMaterial
               color="#fef9c3"
               emissive="#fde047"
-              emissiveIntensity={1.65}
+              emissiveIntensity={2.6}
               toneMapped={false}
               roughness={0.15}
             />
@@ -804,7 +834,7 @@ export function DeskObjects({
             <meshStandardMaterial
               color="#f97316"
               emissive="#f97316"
-              emissiveIntensity={1.55}
+              emissiveIntensity={2.4}
               toneMapped={false}
               roughness={0.2}
             />
@@ -1101,7 +1131,7 @@ export function DeskObjects({
           <meshStandardMaterial
             color={vinylPlaying ? '#3b82f6' : '#64748b'}
             emissive={vinylPlaying ? '#3b82f6' : '#1e293b'}
-            emissiveIntensity={vinylPlaying ? 2.5 : 0.3}
+            emissiveIntensity={vinylPlaying ? 3.0 : 0.3}
             toneMapped={false}
           />
         </mesh>
