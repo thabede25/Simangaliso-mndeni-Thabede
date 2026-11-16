@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Outfit", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-hand: "Caveat", cursive, system-ui, sans-serif;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    background-color: #efece6;
+    color: #18181b;
+  }
+}
+
+.lined-paper {
+  background-color: #fdfbf4;
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent 40px,
+      rgba(225, 92, 92, 0.34) 40px,
+      rgba(225, 92, 92, 0.34) 41px,
+      transparent 41px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 27px,
+      rgba(148, 163, 184, 0.25) 27px,
+      rgba(148, 163, 184, 0.25) 28px
+    );
+  background-attachment: local;
+}

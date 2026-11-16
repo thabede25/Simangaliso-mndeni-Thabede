@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "NotebookEntry": {
+      "title": "NotebookEntry",
+      "description": "A visitor signature and message written in Simangaliso's interactive desk diary.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Visitor's display name",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "role": {
+          "type": "string",
+          "description": "Optional role, discipline, or company",
+          "minLength": 0,
+          "maxLength": 80
+        },
+        "message": {
+          "type": "string",
+          "description": "Visitor guestbook message",
+          "minLength": 2,
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the entry was created"
+        }
+      },
+      "required": ["name", "role", "message", "createdAt"]
+    },
+    "VinylTrack": {
+      "title": "VinylTrack",
+      "description": "An ad-free online song added by a visitor to Simangaliso's 3D vinyl turntable queue.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Track title",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "artist": {
+          "type": "string",
+          "description": "Track artist",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "pickedBy": {
+          "type": "string",
+          "description": "Visitor who added the track",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "streamUrl": {
+          "type": "string",
+          "description": "HTTPS audio stream URL (ad-free)",
+          "minLength": 8,
+          "maxLength": 500,
+          "pattern": "^https://.*"
+        },
+        "artworkUrl": {
+          "type": "string",
+          "description": "Optional HTTPS album artwork URL",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "source": {
+          "type": "string",
+          "description": "Origin catalog of the full-length ad-free stream",
+          "enum": ["audius", "direct"]
+        },
+        "plays": {
+          "type": "integer",
+          "description": "Total vinyl turntable plays"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the track was added"
+        }
+      },
+      "required": ["title", "artist", "pickedBy", "streamUrl", "artworkUrl", "source", "plays", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/notebook_entries/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/NotebookEntry"
+      },
+      "description": "Public portfolio diary entries ordered newest first."
+    },
+    "/vinyl_tracks/{trackId}": {
+      "schema": {
+        "$ref": "#/entities/VinylTrack"
+      },
+      "description": "Visitor-curated ad-free online songs played on the 3D vinyl turntable."
+    }
+  }
+}

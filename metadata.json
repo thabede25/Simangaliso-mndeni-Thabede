@@ -1,0 +1,6 @@
+{
+  "name": "Simangaliso Thabede — 3D Engineering Desk",
+  "description": "Interactive 3D virtual desk portfolio of Simangaliso Mndeni Thabede, Mining Engineering student at Wits University. Explore 3D block models, live thermistor telemetry, open-pit haulage calculators, Gemini AI chat, and a Firestore-backed diary.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

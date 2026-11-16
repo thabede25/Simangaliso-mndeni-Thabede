@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidNotebookEntry(data) {
+      return data.keys().hasAll(['name', 'role', 'message', 'createdAt'])
+        && data.keys().hasOnly(['name', 'role', 'message', 'createdAt'])
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 60
+        && data.role is string
+        && data.role.size() <= 80
+        && data.message is string
+        && data.message.size() >= 2
+        && data.message.size() <= 300
+        && data.createdAt == request.time;
+    }
+
+    function isValidVinylTrack(data) {
+      return data.keys().hasAll(['title', 'artist', 'pickedBy', 'streamUrl', 'artworkUrl', 'source', 'plays', 'createdAt'])
+        && data.keys().hasOnly(['title', 'artist', 'pickedBy', 'streamUrl', 'artworkUrl', 'source', 'plays', 'createdAt'])
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 100
+        && data.artist is string
+        && data.artist.size() >= 1
+        && data.artist.size() <= 80
+        && data.pickedBy is string
+        && data.pickedBy.size() >= 1
+        && data.pickedBy.size() <= 50
+        && data.streamUrl is string
+        && data.streamUrl.size() >= 8
+        && data.streamUrl.size() <= 500
+        && data.streamUrl.matches('^https://.*')
+        && data.artworkUrl is string
+        && data.artworkUrl.size() <= 500
+        && (data.artworkUrl == '' || data.artworkUrl.matches('^https://.*'))
+        && data.source is string
+        && data.source in ['audius', 'direct']
+        && data.plays is int
+        && data.plays >= 1
+        && data.plays <= 1000000
+        && data.createdAt is timestamp;
+    }
+
+    match /notebook_entries/{entryId} {
+      allow get: if isValidId(entryId);
+      allow list: if request.query.limit <= 100;
+      allow create: if isValidId(entryId) && isValidNotebookEntry(incoming());
+      allow update, delete: if false;
+    }
+
+    match /vinyl_tracks/{trackId} {
+      allow get: if isValidId(trackId);
+      allow list: if request.query.limit <= 100;
+      allow create: if isValidId(trackId)
+        && isValidVinylTrack(incoming())
+        && incoming().plays == 1
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(trackId)
+        && isValidVinylTrack(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['plays'])
+        && incoming().plays == existing().plays + 1
+        && incoming().title == existing().title
+        && incoming().artist == existing().artist
+        && incoming().pickedBy == existing().pickedBy
+        && incoming().streamUrl == existing().streamUrl
+        && incoming().artworkUrl == existing().artworkUrl
+        && incoming().source == existing().source
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+  }
+}
