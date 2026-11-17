@@ -3,11 +3,12 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import { DeskFocusId } from '../../data/portfolioData';
+import { LIGHTING_PRESETS, LightingMode } from '../../types/scene';
 import {
   createBreadboardTexture,
   createCadSheetTexture,
   createContactShadowTexture,
-  createDeskMatTexture,
+  createDeskMatTextures,
   createDiaryCoverTexture,
   createLaptopScreenTexture,
   createPhoneScreenTexture,
@@ -15,7 +16,7 @@ import {
   createTabletScreenTexture,
   createTireTreadTexture,
   createVinylRecordTexture,
-  createWalnutTexture,
+  createWalnutTextures,
   createWoodTextures,
 } from '../../utils/proceduralTextures';
 import {
@@ -35,6 +36,11 @@ interface DeskObjectsProps {
   fanRpm: number;
   truckBedTipped: boolean;
   vinylPlaying: boolean;
+  lightingMode: LightingMode;
+  lampOn: boolean;
+  onToggleLamp: () => void;
+  coffeeSteamKey: number;
+  onSipCoffee: () => void;
   isSoftwareGl: boolean;
 }
 
@@ -98,6 +104,11 @@ export function DeskObjects({
   fanRpm,
   truckBedTipped,
   vinylPlaying,
+  lightingMode,
+  lampOn,
+  onToggleLamp,
+  coffeeSteamKey,
+  onSipCoffee,
   isSoftwareGl,
 }: DeskObjectsProps) {
   const { gl } = useThree();
@@ -109,8 +120,8 @@ export function DeskObjects({
   const textures = useMemo(() => {
     return {
       wood: createWoodTextures(maxAniso),
-      deskMat: createDeskMatTexture(maxAniso),
-      walnut: createWalnutTexture(maxAniso),
+      deskMat: createDeskMatTextures(maxAniso),
+      walnut: createWalnutTextures(maxAniso),
       vinylDisc: createVinylRecordTexture(maxAniso),
       stickyYellow: createStickyNoteTexture(
         '#fef08a',
@@ -170,14 +181,18 @@ export function DeskObjects({
   );
 
   const woodNormalScale = useMemo(() => new THREE.Vector2(0.46, 0.46), []);
+  const feltNormalScale = useMemo(() => new THREE.Vector2(0.32, 0.32), []);
+  const walnutNormalScale = useMemo(() => new THREE.Vector2(0.38, 0.38), []);
 
   useEffect(() => {
     return () => {
       textures.wood.map.dispose();
       textures.wood.normalMap.dispose();
       textures.wood.roughnessMap.dispose();
-      textures.deskMat.dispose();
-      textures.walnut.dispose();
+      textures.deskMat.map.dispose();
+      textures.deskMat.normalMap.dispose();
+      textures.walnut.map.dispose();
+      textures.walnut.normalMap.dispose();
       textures.vinylDisc.dispose();
       textures.stickyYellow.dispose();
       textures.stickyPink.dispose();
@@ -199,24 +214,35 @@ export function DeskObjects({
     };
   }, [geos, keycapMaterial]);
 
-  const [hovered, setHovered] = useState<DeskFocusId | 'wall-note' | null>(null);
+  const [hovered, setHovered] = useState<DeskFocusId | 'wall-note' | 'lamp' | 'mug' | null>(null);
   const fanRotorRef = useRef<THREE.Group>(null);
   const truckBedRef = useRef<THREE.Group>(null);
   const vinylDiscRef = useRef<THREE.Mesh>(null);
   const tonearmRef = useRef<THREE.Group>(null);
+  const steamRefs = useRef<(THREE.Mesh | null)[]>([null, null, null]);
+  const steamBoostRef = useRef(0);
+  const lastSteamKeyRef = useRef(coffeeSteamKey);
 
-  const handleOver = (id: DeskFocusId | 'wall-note') => (e: { stopPropagation: () => void }) => {
-    e.stopPropagation();
-    setHovered(id);
-    document.body.style.cursor = 'pointer';
-  };
+  useEffect(() => {
+    if (coffeeSteamKey !== lastSteamKeyRef.current) {
+      lastSteamKeyRef.current = coffeeSteamKey;
+      steamBoostRef.current = 1;
+    }
+  }, [coffeeSteamKey]);
+
+  const handleOver =
+    (id: DeskFocusId | 'wall-note' | 'lamp' | 'mug') => (e: { stopPropagation: () => void }) => {
+      e.stopPropagation();
+      setHovered(id);
+      document.body.style.cursor = 'pointer';
+    };
 
   const handleOut = () => {
     setHovered(null);
     document.body.style.cursor = 'default';
   };
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (fanRotorRef.current && fanActive && fanRpm > 0) {
       const speedRad = (fanRpm / 2800) * 20;
       fanRotorRef.current.rotation.z -= delta * speedRad;
@@ -245,23 +271,47 @@ export function DeskObjects({
         delta
       );
     }
+
+    steamBoostRef.current = THREE.MathUtils.damp(steamBoostRef.current, 0, 2.2, delta);
+    const t = state.clock.elapsedTime;
+    for (let i = 0; i < 3; i++) {
+      const puff = steamRefs.current[i];
+      if (!puff) continue;
+      const phase = ((t * 0.28 + i * 0.33) % 1 + 1) % 1;
+      puff.position.y = 0.175 + phase * 0.14;
+      puff.position.x = Math.sin(t * 1.4 + i * 2.1) * 0.012;
+      puff.position.z = Math.cos(t * 1.1 + i * 1.7) * 0.01;
+      const scale = 0.55 + phase * 0.95 + steamBoostRef.current * 0.25;
+      puff.scale.set(scale, scale * 1.15, scale);
+      const mat = puff.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.sin(phase * Math.PI) * (0.11 + steamBoostRef.current * 0.12);
+    }
   });
 
   const showLabels = activeFocus === 'overview';
+  const lightingPreset = LIGHTING_PRESETS[lightingMode];
 
   return (
     <group>
       {/* Studio Ground Plane */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.82, 0]} receiveShadow>
         <planeGeometry args={[30, 30]} />
-        <meshStandardMaterial color="#e6e1d7" roughness={0.95} metalness={0.0} />
+        <meshStandardMaterial color={lightingPreset.floorColorHex} roughness={0.95} metalness={0.0} />
       </mesh>
 
-      {/* Architectural Studio Back Wall + Subtle Sticky Notes */}
+      {/* Architectural Studio Back Wall + Baseboard Molding + Sticky Notes */}
       <group position={[0, 1.4, -1.78]}>
         <mesh receiveShadow>
           <planeGeometry args={[18, 6]} />
-          <meshStandardMaterial color="#efece6" roughness={0.95} metalness={0.0} />
+          <meshStandardMaterial color={lightingPreset.wallColorHex} roughness={0.95} metalness={0.0} />
+        </mesh>
+        <mesh position={[0, -2.14, 0.025]} receiveShadow>
+          <boxGeometry args={[18, 0.16, 0.05]} />
+          <meshStandardMaterial
+            color={lightingMode === 'night' ? '#252c3d' : '#dcd6cb'}
+            roughness={0.78}
+            metalness={0.02}
+          />
         </mesh>
         {/* Pinned Sticky Notes (Right side of studio wall) */}
         <mesh
@@ -325,11 +375,13 @@ export function DeskObjects({
           </mesh>
         ))}
 
-        {/* Stitched Wool-Felt Desk Mat */}
+        {/* Stitched Wool-Felt Desk Mat with Woven Normal Relief */}
         <mesh geometry={geos.deskMat} position={[-0.05, 0.001, 0.14]} receiveShadow>
           <meshStandardMaterial
             color="#ffffff"
-            map={textures.deskMat}
+            map={textures.deskMat.map}
+            normalMap={textures.deskMat.normalMap}
+            normalScale={feltNormalScale}
             roughness={0.94}
             metalness={0.0}
           />
@@ -341,8 +393,18 @@ export function DeskObjects({
         </mesh>
       </group>
 
-      {/* Articulated Architect's Desk Lamp (Back-left corner) */}
-      <group position={[-2.92, 0, -1.16]} rotation={[0, 0.42, 0]} scale={0.86}>
+      {/* Interactive Articulated Architect's Desk Lamp (Back-left corner) */}
+      <group
+        position={[-2.92, 0, -1.16]}
+        rotation={[0, 0.42, 0]}
+        scale={0.86}
+        onPointerOver={handleOver('lamp')}
+        onPointerOut={handleOut}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleLamp();
+        }}
+      >
         {/* Contact Shadow */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
           <planeGeometry args={[0.65, 0.65]} />
@@ -351,7 +413,11 @@ export function DeskObjects({
         {/* Heavy weighted base */}
         <mesh position={[0, 0.022, 0]} castShadow receiveShadow>
           <cylinderGeometry args={[0.21, 0.23, 0.044, 28]} />
-          <meshStandardMaterial color="#1f2024" roughness={0.38} metalness={0.75} />
+          <meshStandardMaterial
+            color={hovered === 'lamp' ? '#2e3038' : '#1f2024'}
+            roughness={0.38}
+            metalness={0.75}
+          />
         </mesh>
         {/* Brass swivel collar */}
         <mesh position={[0, 0.06, 0]} castShadow>
@@ -373,7 +439,7 @@ export function DeskObjects({
           <cylinderGeometry args={[0.016, 0.018, 0.6, 12]} />
           <meshStandardMaterial color="#1f2024" roughness={0.4} metalness={0.75} />
         </mesh>
-        {/* Spun-metal LatheGeometry lamp shade + warm bulb */}
+        {/* Spun-metal LatheGeometry lamp shade + toggleable warm bulb */}
         <group position={[0, 1.0, 0.4]} rotation={[0.42, 0, 0]}>
           <mesh geometry={geos.lampShade} position={[0, -0.1, 0]} castShadow>
             <meshStandardMaterial color="#222327" roughness={0.36} metalness={0.72} />
@@ -381,18 +447,34 @@ export function DeskObjects({
           <mesh position={[0, -0.02, 0]}>
             <sphereGeometry args={[0.058, 16, 16]} />
             <meshStandardMaterial
-              color="#fef3c7"
-              emissive="#fbbf24"
-              emissiveIntensity={3.2}
-              toneMapped={false}
-              roughness={0.18}
+              color={lampOn ? '#fef3c7' : '#d6d3d1'}
+              emissive={lampOn ? '#fbbf24' : '#000000'}
+              emissiveIntensity={lampOn ? (lightingMode === 'night' ? 3.8 : 3.1) : 0}
+              toneMapped={!lampOn}
+              roughness={lampOn ? 0.18 : 0.4}
             />
           </mesh>
         </group>
+
+        <HoverTag
+          visible={showLabels && hovered === 'lamp'}
+          title={lampOn ? 'Desk Lamp · On' : 'Desk Lamp · Off'}
+          subtitle="Click to toggle task light"
+          position={[0.1, 1.25, 0.35]}
+        />
       </group>
 
-      {/* Ceramic Coffee Mug on Cork Coaster */}
-      <group position={[0.55, 0.013, 0.72]} rotation={[0, -0.6, 0]}>
+      {/* Interactive Ceramic Coffee Mug on Cork Coaster + Rising Steam */}
+      <group
+        position={[0.55, 0.013, 0.72]}
+        rotation={[0, -0.6, 0]}
+        onPointerOver={handleOver('mug')}
+        onPointerOut={handleOut}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSipCoffee();
+        }}
+      >
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
           <planeGeometry args={[0.3, 0.3]} />
           <meshBasicMaterial map={textures.contactShadow} transparent opacity={0.4} depthWrite={false} />
@@ -405,23 +487,43 @@ export function DeskObjects({
         {/* LatheGeometry hollow ceramic mug with clearcoat glaze */}
         <mesh geometry={geos.mug} position={[0, 0.01, 0]} castShadow receiveShadow>
           <meshPhysicalMaterial
-            color="#f5f2eb"
+            color={hovered === 'mug' ? '#ffffff' : '#f5f2eb'}
             roughness={0.18}
             metalness={0.02}
-            clearcoat={0.7}
-            clearcoatRoughness={0.14}
+            clearcoat={0.75}
+            clearcoatRoughness={0.12}
           />
         </mesh>
         {/* Mug handle */}
         <mesh position={[0.078, 0.098, 0]} rotation={[0, 0, -Math.PI / 2]} castShadow>
           <torusGeometry args={[0.042, 0.01, 10, 18, Math.PI]} />
-          <meshPhysicalMaterial color="#f5f2eb" roughness={0.18} clearcoat={0.7} />
+          <meshPhysicalMaterial color="#f5f2eb" roughness={0.18} clearcoat={0.75} />
         </mesh>
         {/* Dark coffee surface with subtle glossy sheen */}
         <mesh position={[0, 0.145, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <circleGeometry args={[0.063, 20]} />
           <meshPhysicalMaterial color="#2a160c" roughness={0.08} clearcoat={0.85} />
         </mesh>
+        {/* Rising Coffee Steam Wisps */}
+        {[0, 1, 2].map((idx) => (
+          <mesh
+            key={idx}
+            ref={(el) => {
+              steamRefs.current[idx] = el;
+            }}
+            position={[0, 0.18 + idx * 0.04, 0]}
+          >
+            <sphereGeometry args={[0.024, 10, 10]} />
+            <meshBasicMaterial color="#f5f5f4" transparent opacity={0.09} depthWrite={false} />
+          </mesh>
+        ))}
+
+        <HoverTag
+          visible={showLabels && hovered === 'mug'}
+          title="Espresso Mug"
+          subtitle="Click for a quick sip"
+          position={[0, 0.28, 0]}
+        />
       </group>
 
       {/* 1. REALISTIC MACBOOK-STYLE LAPTOP (My Projects) */}
@@ -442,9 +544,10 @@ export function DeskObjects({
         {/* Rounded Anodized Aluminum Unibody Base */}
         <mesh geometry={geos.laptopBase} position={[0, 0, 0]} castShadow receiveShadow>
           <meshStandardMaterial
-            color={hovered === 'laptop' ? '#e4e4e7' : '#d2d4d9'}
-            roughness={0.24}
-            metalness={0.88}
+            color={hovered === 'laptop' ? '#d8dade' : '#c6c9cf'}
+            roughness={0.26}
+            metalness={0.86}
+            envMapIntensity={0.82}
           />
         </mesh>
 
@@ -484,7 +587,12 @@ export function DeskObjects({
             rotation={[Math.PI / 2, 0, 0]}
             castShadow
           >
-            <meshStandardMaterial color="#d2d4d9" roughness={0.22} metalness={0.9} />
+            <meshStandardMaterial
+              color="#c6c9cf"
+              roughness={0.24}
+              metalness={0.88}
+              envMapIntensity={0.82}
+            />
           </mesh>
           {/* Glossy Black Bezel */}
           <mesh position={[0, 0.38, 0.017]}>
@@ -503,7 +611,7 @@ export function DeskObjects({
               map={textures.laptopScreen}
               emissiveMap={textures.laptopScreen}
               emissive="#ffffff"
-              emissiveIntensity={0.45}
+              emissiveIntensity={lightingMode === 'night' ? 0.62 : 0.45}
               roughness={0.28}
               metalness={0.02}
               clearcoat={0.35}
@@ -1048,12 +1156,14 @@ export function DeskObjects({
           <meshBasicMaterial map={textures.contactShadow} transparent opacity={0.5} depthWrite={false} />
         </mesh>
 
-        {/* Walnut Wood Plinth Base */}
+        {/* Walnut Wood Plinth Base with Normal Grain */}
         <mesh geometry={geos.turntablePlinth} position={[0, 0, 0]} castShadow receiveShadow>
           <meshStandardMaterial
             color="#ffffff"
-            map={textures.walnut}
-            roughness={0.54}
+            map={textures.walnut.map}
+            normalMap={textures.walnut.normalMap}
+            normalScale={walnutNormalScale}
+            roughness={0.52}
             metalness={0.05}
           />
         </mesh>

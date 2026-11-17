@@ -3,6 +3,7 @@ import {
   buildDeskWoodSurfaceBuffers,
   heightFieldToNormalMapData,
   mulberry32,
+  tileableFbm2D,
 } from './surfaceMaps';
 
 function createCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -126,7 +127,10 @@ export function createWoodTextures(maxAnisotropy = 4): {
   return { map, normalMap, roughnessMap };
 }
 
-export function createDeskMatTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+export function createDeskMatTextures(maxAnisotropy = 4): {
+  map: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+} {
   const [canvas, ctx] = createCanvas(512, 512);
   ctx.fillStyle = '#222428';
   ctx.fillRect(0, 0, 512, 512);
@@ -140,18 +144,41 @@ export function createDeskMatTexture(maxAnisotropy = 4): THREE.CanvasTexture {
     }
   }
   // Subtle perimeter stitch line
-  ctx.strokeStyle = 'rgba(180, 145, 95, 0.28)';
+  ctx.strokeStyle = 'rgba(180, 145, 95, 0.34)';
   ctx.setLineDash([6, 5]);
   ctx.lineWidth = 2;
   ctx.strokeRect(10, 10, 492, 492);
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = maxAnisotropy;
+
+  const size = 256;
+  const feltHeights = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const weave =
+        Math.sin(u * Math.PI * 128) * Math.cos(v * Math.PI * 128) * 0.25 +
+        tileableFbm2D(u, v, 32, 3, 733) * 0.55;
+      feltHeights[y * size + x] = 0.5 + weave * 0.45;
+    }
+  }
+  const feltNormalRgba = heightFieldToNormalMapData(feltHeights, size, size, 1.9);
+  const [nCanvas, nCtx] = createCanvas(size, size);
+  nCtx.putImageData(new ImageData(new Uint8ClampedArray(feltNormalRgba), size, size), 0, 0);
+  const normalMap = new THREE.CanvasTexture(nCanvas);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.anisotropy = maxAnisotropy;
+
+  return { map, normalMap };
 }
 
-export function createWalnutTexture(maxAnisotropy = 4): THREE.CanvasTexture {
+export function createWalnutTextures(maxAnisotropy = 4): {
+  map: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+} {
   const [canvas, ctx] = createCanvas(256, 256);
   ctx.fillStyle = '#5c3c24';
   ctx.fillRect(0, 0, 256, 256);
@@ -165,10 +192,29 @@ export function createWalnutTexture(maxAnisotropy = 4): THREE.CanvasTexture {
     ctx.lineTo(256, y + Math.sin(i * 0.3) * 3);
     ctx.stroke();
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = maxAnisotropy;
-  return tex;
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = maxAnisotropy;
+
+  const size = 256;
+  const walnutHeights = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const grain = Math.sin(v * Math.PI * 70 + tileableFbm2D(u, v, 8, 2, 311) * 3.0) * 0.3;
+      const noise = tileableFbm2D(u, v, 18, 3, 619) * 0.3;
+      walnutHeights[y * size + x] = 0.5 + grain + noise;
+    }
+  }
+  const normalRgba = heightFieldToNormalMapData(walnutHeights, size, size, 2.0);
+  const [nCanvas, nCtx] = createCanvas(size, size);
+  nCtx.putImageData(new ImageData(new Uint8ClampedArray(normalRgba), size, size), 0, 0);
+  const normalMap = new THREE.CanvasTexture(nCanvas);
+  normalMap.colorSpace = THREE.NoColorSpace;
+  normalMap.anisotropy = maxAnisotropy;
+
+  return { map, normalMap };
 }
 
 export function createVinylRecordTexture(maxAnisotropy = 4): THREE.CanvasTexture {

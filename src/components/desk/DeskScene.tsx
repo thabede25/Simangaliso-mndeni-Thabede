@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
@@ -12,6 +13,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { CAMERA_PRESETS, DeskFocusId } from '../../data/portfolioData';
+import { LIGHTING_PRESETS, LightingMode } from '../../types/scene';
 import { DeskObjects } from './DeskObjects';
 
 function detectSoftwareGl(): boolean {
@@ -83,21 +85,61 @@ class DeskCanvasErrorBoundary extends Component<
   }
 }
 
-function StudioEnvironment() {
-  const { gl, scene } = useThree();
+function StudioEnvironment({
+  intensity,
+  toneMappingExposure,
+}: {
+  intensity: number;
+  toneMappingExposure: number;
+}) {
+  const { gl, scene, invalidate } = useThree();
 
   useEffect(() => {
+    let active = true;
     const pmremGenerator = new THREE.PMREMGenerator(gl);
-    const envTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = envTexture;
-    scene.environmentIntensity = 0.78;
+    pmremGenerator.compileEquirectangularShader();
+
+    let currentEnv: THREE.Texture | null = pmremGenerator.fromScene(
+      new RoomEnvironment(),
+      0.04
+    ).texture;
+    scene.environment = currentEnv;
+
+    const hdrLoader = new HDRLoader();
+    hdrLoader.load(
+      '/assets/hdr/studio_small_09_2k.hdr',
+      (hdrDataTex) => {
+        if (!active) {
+          hdrDataTex.dispose();
+          return;
+        }
+        const hdriTarget = pmremGenerator.fromEquirectangular(hdrDataTex);
+        hdrDataTex.dispose();
+        const prev = currentEnv;
+        currentEnv = hdriTarget.texture;
+        scene.environment = currentEnv;
+        if (prev) prev.dispose();
+        invalidate();
+      },
+      undefined,
+      () => {
+        // Keep synchronous RoomEnvironment fallback cleanly if HDR fetch is offline
+      }
+    );
 
     return () => {
+      active = false;
       scene.environment = null;
-      envTexture.dispose();
+      if (currentEnv) currentEnv.dispose();
       pmremGenerator.dispose();
     };
-  }, [gl, scene]);
+  }, [gl, scene, invalidate]);
+
+  useEffect(() => {
+    scene.environmentIntensity = intensity;
+    gl.toneMappingExposure = toneMappingExposure;
+    invalidate();
+  }, [scene, gl, intensity, toneMappingExposure, invalidate]);
 
   return null;
 }
@@ -154,7 +196,11 @@ interface CameraAndRenderDriverProps {
   fanActive: boolean;
   truckBedTipped: boolean;
   vinylPlaying: boolean;
+  lightingMode: LightingMode;
+  lampOn: boolean;
+  coffeeSteamKey: number;
   isSoftwareGl: boolean;
+  prefersReducedMotion: boolean;
 }
 
 function CameraAndRenderDriver({
@@ -162,7 +208,11 @@ function CameraAndRenderDriver({
   fanActive,
   truckBedTipped,
   vinylPlaying,
+  lightingMode,
+  lampOn,
+  coffeeSteamKey,
   isSoftwareGl,
+  prefersReducedMotion,
 }: CameraAndRenderDriverProps) {
   const { camera, gl, invalidate } = useThree();
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -179,7 +229,16 @@ function CameraAndRenderDriver({
       tweeningRef.current = true;
     }
     invalidate();
-  }, [activeFocus, fanActive, truckBedTipped, vinylPlaying, invalidate]);
+  }, [
+    activeFocus,
+    fanActive,
+    truckBedTipped,
+    vinylPlaying,
+    lightingMode,
+    lampOn,
+    coffeeSteamKey,
+    invalidate,
+  ]);
 
   // Software-WebGL safe pacing using afterDraw when animating
   useEffect(() => {
@@ -246,7 +305,7 @@ function CameraAndRenderDriver({
     bedProgressRef.current = THREE.MathUtils.damp(bedProgressRef.current, targetBed, 7, clampedDelta);
 
     if (tweeningRef.current && !manualOverrideRef.current && controlsRef.current) {
-      if (isSoftwareGl) {
+      if (isSoftwareGl || prefersReducedMotion) {
         camera.position.copy(_desiredPos);
         controlsRef.current.target.copy(_desiredTarget);
         updatingControlsRef.current = true;
@@ -350,12 +409,13 @@ function DeskPostProcessing({ isSoftwareGl }: { isSoftwareGl: boolean }) {
     const effHeight = Math.max(1, Math.floor(height * pixelRatio));
 
     // Screen Space Ambient Occlusion calibrated to desk prop scale for contact shadows
+    const ssaoScale = isSoftwareGl ? 0.5 : 1;
     const ssaoPass = new SSAOPass(
       scene,
       camera,
-      effWidth,
-      effHeight,
-      isSoftwareGl ? 8 : 32
+      Math.max(1, Math.floor(effWidth * ssaoScale)),
+      Math.max(1, Math.floor(effHeight * ssaoScale)),
+      isSoftwareGl ? 6 : 32
     );
     ssaoPass.output = SSAOPass.OUTPUT.Default;
     ssaoPass.kernelRadius = 0.22;
@@ -450,6 +510,11 @@ interface DeskSceneProps {
   fanRpm: number;
   truckBedTipped: boolean;
   vinylPlaying: boolean;
+  lightingMode: LightingMode;
+  lampOn: boolean;
+  onToggleLamp: () => void;
+  coffeeSteamKey: number;
+  onSipCoffee: () => void;
 }
 
 export function DeskScene({
@@ -460,8 +525,19 @@ export function DeskScene({
   fanRpm,
   truckBedTipped,
   vinylPlaying,
+  lightingMode,
+  lampOn,
+  onToggleLamp,
+  coffeeSteamKey,
+  onSipCoffee,
 }: DeskSceneProps) {
   const isSoftwareGl = useMemo(() => detectSoftwareGl(), []);
+  const prefersReducedMotion = useMemo(
+    () =>
+      typeof window !== 'undefined' &&
+      Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+    []
+  );
   const enablePostProcessing = useMemo(() => {
     if (!isSoftwareGl) return true;
     if (typeof window !== 'undefined') {
@@ -470,11 +546,16 @@ export function DeskScene({
     return false;
   }, [isSoftwareGl]);
 
+  const preset = LIGHTING_PRESETS[lightingMode];
+
   return (
     <div
-      className="relative w-full h-full bg-[#EFECE6]"
+      className="relative w-full h-full transition-colors duration-300"
+      style={{ backgroundColor: preset.backgroundHex }}
       data-testid="desk-canvas-container"
       data-focus={activeFocus}
+      data-lighting={lightingMode}
+      data-lamp={lampOn ? 'on' : 'off'}
     >
       <DeskCanvasErrorBoundary>
         <Canvas
@@ -491,23 +572,28 @@ export function DeskScene({
             antialias: !enablePostProcessing && !isSoftwareGl,
             powerPreference: 'high-performance',
             toneMapping: THREE.ACESFilmicToneMapping,
-            toneMappingExposure: 1.04,
+            toneMappingExposure: preset.toneMappingExposure,
           }}
           onCreated={({ gl }) => {
             gl.outputColorSpace = THREE.SRGBColorSpace;
           }}
         >
-          <color attach="background" args={['#EFECE6']} />
-          <fog attach="fog" args={['#EFECE6', 10, 24]} />
+          <color attach="background" args={[preset.backgroundHex]} />
+          <fog attach="fog" args={[preset.fogHex, preset.fogNear, preset.fogFar]} />
 
-          <StudioEnvironment />
+          <StudioEnvironment
+            intensity={preset.environmentIntensity}
+            toneMappingExposure={preset.toneMappingExposure}
+          />
 
-          {/* Soft PBR Hemisphere Fill + Warm Key Light + Cool Rim Light */}
-          <hemisphereLight args={['#eef4fc', '#b49576', 0.72]} />
+          {/* Soft PBR Hemisphere Fill + Dynamic Key Light + Cool Rim Light */}
+          <hemisphereLight
+            args={[preset.hemiSkyHex, preset.hemiGroundHex, preset.hemiIntensity]}
+          />
           <directionalLight
-            position={[3.8, 6.5, 4.6]}
-            intensity={1.55}
-            color="#fff4e2"
+            position={preset.keyPos}
+            intensity={preset.keyIntensity}
+            color={preset.keyColorHex}
             castShadow={!isSoftwareGl}
             shadow-mapSize={[2048, 2048]}
             shadow-radius={4}
@@ -521,9 +607,19 @@ export function DeskScene({
             shadow-normalBias={0.02}
           />
           {/* Cool architectural fill from back-left */}
-          <directionalLight position={[-4.4, 3.4, -3.2]} intensity={0.58} color="#dbeafe" />
-          {/* Warm desk-lamp localized pool */}
-          <pointLight position={[-2.5, 1.02, -0.75]} intensity={1.1} distance={4.8} color="#fde68a" />
+          <directionalLight
+            position={preset.fillPos}
+            intensity={preset.fillIntensity}
+            color={preset.fillColorHex}
+          />
+          {/* Toggleable Warm Desk-Lamp Pool */}
+          <pointLight
+            position={[-2.5, 1.02, -0.75]}
+            intensity={lampOn ? preset.lampLightIntensity : 0}
+            distance={5.4}
+            decay={1.8}
+            color={preset.lampLightColorHex}
+          />
 
           <DeskObjects
             activeFocus={activeFocus}
@@ -533,6 +629,11 @@ export function DeskScene({
             fanRpm={fanRpm}
             truckBedTipped={truckBedTipped}
             vinylPlaying={vinylPlaying}
+            lightingMode={lightingMode}
+            lampOn={lampOn}
+            onToggleLamp={onToggleLamp}
+            coffeeSteamKey={coffeeSteamKey}
+            onSipCoffee={onSipCoffee}
             isSoftwareGl={isSoftwareGl}
           />
 
@@ -541,7 +642,11 @@ export function DeskScene({
             fanActive={fanActive}
             truckBedTipped={truckBedTipped}
             vinylPlaying={vinylPlaying}
+            lightingMode={lightingMode}
+            lampOn={lampOn}
+            coffeeSteamKey={coffeeSteamKey}
             isSoftwareGl={isSoftwareGl}
+            prefersReducedMotion={prefersReducedMotion}
           />
 
           {enablePostProcessing && (

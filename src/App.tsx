@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DeskFocusId, VinylTrack } from './data/portfolioData';
 import {
   createVinylTrack,
@@ -11,17 +11,54 @@ import {
 import { simulateCoolingRig } from './utils/engineeringMath';
 import { vinylAudioEngine } from './utils/musicEngine';
 import { playDeskClick, playRelaySwitch } from './utils/soundEffects';
+import {
+  cycleLightingMode,
+  DESK_SHORTCUT_MAP,
+  isLightingMode,
+  LIGHTING_PRESETS,
+  LightingMode,
+} from './types/scene';
 import { DeskScene } from './components/desk/DeskScene';
 import { DeskHud } from './components/hud/DeskHud';
-import { ProjectsModal } from './components/overlays/ProjectsModal';
-import { CoolingLabModal } from './components/overlays/CoolingLabModal';
-import { PhoneChatModal } from './components/overlays/PhoneChatModal';
-import { HaulTruckModal } from './components/overlays/HaulTruckModal';
-import { DiaryModal } from './components/overlays/DiaryModal';
-import { VinylPlayerModal } from './components/overlays/VinylPlayerModal';
-import { AddVinylTrackInput } from './components/overlays/DeskPlayerView';
-import { ArchitectureModal } from './components/overlays/ArchitectureModal';
-import { WorkContactDrawer } from './components/overlays/WorkContactDrawer';
+import type { AddVinylTrackInput } from './components/overlays/DeskPlayerView';
+
+const ProjectsModal = lazy(() =>
+  import('./components/overlays/ProjectsModal').then((m) => ({ default: m.ProjectsModal }))
+);
+const CoolingLabModal = lazy(() =>
+  import('./components/overlays/CoolingLabModal').then((m) => ({ default: m.CoolingLabModal }))
+);
+const PhoneChatModal = lazy(() =>
+  import('./components/overlays/PhoneChatModal').then((m) => ({ default: m.PhoneChatModal }))
+);
+const HaulTruckModal = lazy(() =>
+  import('./components/overlays/HaulTruckModal').then((m) => ({ default: m.HaulTruckModal }))
+);
+const DiaryModal = lazy(() =>
+  import('./components/overlays/DiaryModal').then((m) => ({ default: m.DiaryModal }))
+);
+const VinylPlayerModal = lazy(() =>
+  import('./components/overlays/VinylPlayerModal').then((m) => ({ default: m.VinylPlayerModal }))
+);
+const ArchitectureModal = lazy(() =>
+  import('./components/overlays/ArchitectureModal').then((m) => ({ default: m.ArchitectureModal }))
+);
+const WorkContactDrawer = lazy(() =>
+  import('./components/overlays/WorkContactDrawer').then((m) => ({ default: m.WorkContactDrawer }))
+);
+
+const LIGHTING_STORAGE_KEY = 'simangaliso-desk:lighting';
+
+function loadInitialLightingMode(): LightingMode {
+  if (typeof window === 'undefined') return 'day';
+  try {
+    const saved = window.localStorage.getItem(LIGHTING_STORAGE_KEY);
+    if (isLightingMode(saved)) return saved;
+  } catch {
+    // Ignore storage read errors in restricted contexts
+  }
+  return 'day';
+}
 
 const TRACK_PALETTES: [string, string][] = [
   ['#1e293b', '#0284c7'],
@@ -86,6 +123,19 @@ export default function App() {
   const [activeFocus, setActiveFocus] = useState<DeskFocusId>('overview');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [lightingMode, setLightingMode] = useState<LightingMode>(loadInitialLightingMode);
+  const [lampOn, setLampOn] = useState<boolean>(
+    () => LIGHTING_PRESETS[loadInitialLightingMode()].lampDefaultOn
+  );
+  const [coffeeSteamKey, setCoffeeSteamKey] = useState(0);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LIGHTING_STORAGE_KEY, lightingMode);
+    } catch {
+      // Ignore storage write errors in restricted contexts
+    }
+  }, [lightingMode]);
 
   // Live Firestore Notebook State (shared between Diary & Tablet summary card)
   const [diaryEntries, setDiaryEntries] = useState<NotebookEntry[]>([]);
@@ -269,25 +319,83 @@ export default function App() {
     setActiveFocus('overview');
   }, [soundEnabled]);
 
+  const handleCycleLighting = useCallback(() => {
+    playDeskClick(soundEnabled, 660);
+    setLightingMode((prev) => {
+      const next = cycleLightingMode(prev);
+      if (next === 'golden-hour' || next === 'night') {
+        setLampOn(true);
+      }
+      return next;
+    });
+  }, [soundEnabled]);
+
+  const handleToggleLamp = useCallback(() => {
+    playDeskClick(soundEnabled, 740);
+    setLampOn((prev) => !prev);
+  }, [soundEnabled]);
+
+  const handleSipCoffee = useCallback(() => {
+    playDeskClick(soundEnabled, 460);
+    setCoffeeSteamKey((prev) => prev + 1);
+  }, [soundEnabled]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        if (e.key === 'Escape') {
+          target.blur();
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         if (drawerOpen) {
           setDrawerOpen(false);
         } else if (activeFocus !== 'overview') {
           setActiveFocus('overview');
         }
+        return;
+      }
+
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        handleCycleLighting();
+        return;
+      }
+
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        setSoundEnabled((prev) => !prev);
+        return;
+      }
+
+      const shortcutFocus = DESK_SHORTCUT_MAP[e.key];
+      if (shortcutFocus) {
+        e.preventDefault();
+        setDrawerOpen(false);
+        handleSelectFocus(shortcutFocus);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeFocus, drawerOpen]);
+  }, [activeFocus, drawerOpen, handleCycleLighting, handleSelectFocus]);
 
   return (
     <main
-      className="relative w-full h-full overflow-hidden bg-[#EFECE6]"
+      className="relative w-full h-full overflow-hidden"
+      style={{ backgroundColor: LIGHTING_PRESETS[lightingMode].backgroundHex }}
       aria-label="Simangaliso Thabede 3D Virtual Engineering Desk"
       data-state={activeFocus}
+      data-lighting={lightingMode}
     >
       {/* Full-Viewport 3D Desk Scene */}
       <DeskScene
@@ -301,6 +409,11 @@ export default function App() {
         fanRpm={coolingState.fanRpm}
         truckBedTipped={activeFocus === 'truck'}
         vinylPlaying={vinylPlaying}
+        lightingMode={lightingMode}
+        lampOn={lampOn}
+        onToggleLamp={handleToggleLamp}
+        coffeeSteamKey={coffeeSteamKey}
+        onSipCoffee={handleSipCoffee}
       />
 
       {/* Floating HUD */}
@@ -313,74 +426,80 @@ export default function App() {
         }}
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled((prev) => !prev)}
+        lightingMode={lightingMode}
+        onCycleLighting={handleCycleLighting}
       />
 
-      {/* Focused Object Overlays */}
-      {activeFocus === 'laptop' && (
-        <ProjectsModal
-          onClose={handleCloseOverlay}
-          onOpenCad={() => handleSelectFocus('blueprint')}
-        />
-      )}
+      {/* Code-Split Focused Object Overlays */}
+      <Suspense fallback={null}>
+        {activeFocus === 'laptop' && (
+          <ProjectsModal
+            onClose={handleCloseOverlay}
+            onOpenCad={() => handleSelectFocus('blueprint')}
+          />
+        )}
 
-      {activeFocus === 'tablet' && (
-        <CoolingLabModal
-          temperatureC={temperatureC}
-          thresholdC={thresholdC}
-          onChangeTemperature={setTemperatureC}
-          onChangeThreshold={setThresholdC}
-          diaryCount={diaryEntries.length}
-          tracks={tracks}
-          loadingTracks={loadingOnlineTracks && tracks.length === 0}
-          currentTrackId={currentTrackId}
-          vinylPlaying={vinylPlaying}
-          onSelectTrack={handleSelectTrack}
-          onToggleVinylPlay={handleToggleVinylPlay}
-          onPrevTrack={handlePrevTrack}
-          onNextTrack={handleNextTrack}
-          onAddTrack={handleAddTrack}
-          onOpenDiary={() => handleSelectFocus('diary')}
-          onOpenCad={() => handleSelectFocus('blueprint')}
-          onClose={handleCloseOverlay}
-        />
-      )}
+        {activeFocus === 'tablet' && (
+          <CoolingLabModal
+            temperatureC={temperatureC}
+            thresholdC={thresholdC}
+            onChangeTemperature={setTemperatureC}
+            onChangeThreshold={setThresholdC}
+            diaryCount={diaryEntries.length}
+            tracks={tracks}
+            loadingTracks={loadingOnlineTracks && tracks.length === 0}
+            currentTrackId={currentTrackId}
+            vinylPlaying={vinylPlaying}
+            onSelectTrack={handleSelectTrack}
+            onToggleVinylPlay={handleToggleVinylPlay}
+            onPrevTrack={handlePrevTrack}
+            onNextTrack={handleNextTrack}
+            onAddTrack={handleAddTrack}
+            onOpenDiary={() => handleSelectFocus('diary')}
+            onOpenCad={() => handleSelectFocus('blueprint')}
+            onClose={handleCloseOverlay}
+          />
+        )}
 
-      {activeFocus === 'phone' && <PhoneChatModal onClose={handleCloseOverlay} />}
+        {activeFocus === 'phone' && <PhoneChatModal onClose={handleCloseOverlay} />}
 
-      {activeFocus === 'truck' && <HaulTruckModal onClose={handleCloseOverlay} />}
+        {activeFocus === 'truck' && <HaulTruckModal onClose={handleCloseOverlay} />}
 
-      {activeFocus === 'diary' && (
-        <DiaryModal
-          entries={diaryEntries}
-          loading={diaryLoading}
-          loadError={diaryError}
-          onClose={handleCloseOverlay}
-        />
-      )}
+        {activeFocus === 'diary' && (
+          <DiaryModal
+            entries={diaryEntries}
+            loading={diaryLoading}
+            loadError={diaryError}
+            onClose={handleCloseOverlay}
+          />
+        )}
 
-      {activeFocus === 'vinyl' && (
-        <VinylPlayerModal
-          tracks={tracks}
-          loadingTracks={loadingOnlineTracks && tracks.length === 0}
-          currentTrackId={currentTrackId}
-          isPlaying={vinylPlaying}
-          onSelectTrack={handleSelectTrack}
-          onTogglePlay={handleToggleVinylPlay}
-          onPrevTrack={handlePrevTrack}
-          onNextTrack={handleNextTrack}
-          onAddTrack={handleAddTrack}
-          onClose={handleCloseOverlay}
-        />
-      )}
+        {activeFocus === 'vinyl' && (
+          <VinylPlayerModal
+            tracks={tracks}
+            loadingTracks={loadingOnlineTracks && tracks.length === 0}
+            currentTrackId={currentTrackId}
+            isPlaying={vinylPlaying}
+            onSelectTrack={handleSelectTrack}
+            onTogglePlay={handleToggleVinylPlay}
+            onPrevTrack={handlePrevTrack}
+            onNextTrack={handleNextTrack}
+            onAddTrack={handleAddTrack}
+            onClose={handleCloseOverlay}
+          />
+        )}
 
-      {activeFocus === 'blueprint' && <ArchitectureModal onClose={handleCloseOverlay} />}
+        {activeFocus === 'blueprint' && <ArchitectureModal onClose={handleCloseOverlay} />}
 
-      {/* Accessible Slide-Over Work & Contact Drawer */}
-      <WorkContactDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onFocusObject={handleSelectFocus}
-      />
+        {/* Accessible Slide-Over Work & Contact Drawer */}
+        {drawerOpen && (
+          <WorkContactDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            onFocusObject={handleSelectFocus}
+          />
+        )}
+      </Suspense>
     </main>
   );
 }

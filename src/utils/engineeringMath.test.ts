@@ -11,6 +11,13 @@ import {
   heightFieldToNormalMapData,
   buildDeskWoodSurfaceBuffers,
 } from './surfaceMaps';
+import {
+  cycleLightingMode,
+  DESK_SHORTCUT_MAP,
+  isLightingMode,
+  LIGHTING_MODES,
+  LIGHTING_PRESETS,
+} from '../types/scene';
 
 test('simulateCoolingRig computes nominal 25C thermistor resistance and keeps relay off', () => {
   const reading = simulateCoolingRig(25, 30);
@@ -136,4 +143,25 @@ test('buildDeskWoodSurfaceBuffers produces varied height, roughness, and micro-s
     if (val > maxR) maxR = val;
   }
   assert.ok(maxR - minR >= 45, `Expected roughness spread >= 45, got ${maxR - minR}`);
+});
+
+test('lighting modes cycle cleanly and map all 7 desk shortcuts', () => {
+  assert.equal(isLightingMode('day'), true);
+  assert.equal(isLightingMode('golden-hour'), true);
+  assert.equal(isLightingMode('night'), true);
+  assert.equal(isLightingMode('sunset'), false);
+
+  assert.equal(cycleLightingMode('day'), 'golden-hour');
+  assert.equal(cycleLightingMode('golden-hour'), 'night');
+  assert.equal(cycleLightingMode('night'), 'day');
+
+  for (const mode of LIGHTING_MODES) {
+    const preset = LIGHTING_PRESETS[mode];
+    assert.ok(preset.keyIntensity > 0);
+    assert.ok(preset.lampLightIntensity > 0);
+  }
+
+  assert.equal(DESK_SHORTCUT_MAP['0'], 'overview');
+  assert.equal(DESK_SHORTCUT_MAP['1'], 'laptop');
+  assert.equal(DESK_SHORTCUT_MAP['7'], 'blueprint');
 });
